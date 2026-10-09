@@ -1,0 +1,34 @@
+name: Mirror HHVM images
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+  schedule:
+    - cron: '17 4 * * *'
+permissions:
+  contents: read
+  packages: write
+concurrency:
+  group: hhvm-image-mirror
+  cancel-in-progress: false
+jobs:
+  mirror:
+    if: github.server_url == 'https://github.com' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Skopeo
+        run: sudo apt-get update && sudo apt-get install -y skopeo
+      - name: Authenticate to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        run: |
+          umask 077
+          echo "REGISTRY_AUTH_FILE=$RUNNER_TEMP/hhvm-registry-auth.json" >> "$GITHUB_ENV"
+          printf '%s' "$GHCR_TOKEN" | skopeo login --authfile "$RUNNER_TEMP/hhvm-registry-auth.json" --username "$GHCR_USER" --password-stdin ghcr.io
+      - name: Mirror missing versioned builds
+        run: python3 mirror.py
+      - name: Remove registry credentials
+        if: always()
+        run: rm -f "$RUNNER_TEMP/hhvm-registry-auth.json"
